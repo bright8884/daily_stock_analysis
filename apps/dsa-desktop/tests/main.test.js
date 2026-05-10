@@ -236,8 +236,11 @@ test('auto download prompt falls back to error when install path fails', async (
   const updaterEvents = {};
   const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'dsa-desktop-updater-'));
   const exeDir = path.join(tempRoot, 'app');
+  const userDataDir = path.join(tempRoot, 'userData');
   const exePath = path.join(exeDir, 'Daily Stock Analysis.exe');
   const uninstallPath = path.join(exeDir, 'Uninstall Daily Stock Analysis.exe');
+  const envFile = path.join(exeDir, '.env');
+  const backupRoot = path.join(userDataDir, '.dsa-desktop-update-backup');
   const originalRemove = fs.rmSync;
   const fakeUpdater = {
     autoDownload: true,
@@ -271,12 +274,14 @@ test('auto download prompt falls back to error when install path fails', async (
         if (name === 'exe') {
           return exePath;
         }
-        return '/tmp/dsa-user-data';
+        return userDataDir;
       },
     },
   });
 
   fs.mkdirSync(exeDir, { recursive: true });
+  fs.mkdirSync(userDataDir, { recursive: true });
+  fs.writeFileSync(envFile, 'RUN_MODE=desktop\n');
   fs.writeFileSync(uninstallPath, '');
 
   mainModule.__setMainWindowForTest({
@@ -287,11 +292,19 @@ test('auto download prompt falls back to error when install path fails', async (
   });
 
   await mainModule.__getIpcMainHandler('desktop:check-for-updates')();
-  const state = await mainModule.__getIpcMainHandler('desktop:get-update-state')();
+  let state = await mainModule.__getIpcMainHandler('desktop:get-update-state')();
+  for (let idx = 0; idx < 12 && state.status !== mainModule.UPDATE_STATUS.ERROR; idx += 1) {
+    await new Promise((resolve) => {
+      setTimeout(resolve, 30);
+    });
+    state = await mainModule.__getIpcMainHandler('desktop:get-update-state')();
+  }
 
   assert.equal(state.status, mainModule.UPDATE_STATUS.ERROR);
   assert.match(state.message, /更新安装失败/);
   assert.equal(state.updateMode, mainModule.UPDATE_MODE.AUTO);
+  assert.equal(fs.existsSync(backupRoot), false);
+  assert.equal(fs.existsSync(path.join(backupRoot, 'runtime-state.json')), false);
 
   t.after(() => {
     originalRemove(tempRoot, { recursive: true, force: true });

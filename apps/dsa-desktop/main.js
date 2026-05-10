@@ -1107,35 +1107,45 @@ async function installDownloadedUpdate() {
     releaseUrl: desktopUpdateState?.releaseUrl || RELEASES_PAGE_URL,
     message: '正在重启并安装更新...',
   });
-  logLine('[update] stop backend and backup runtime data before install');
-  await stopBackend();
-  cleanupUpdateBackupRoot();
+  let backupRoot = null;
+  try {
+    logLine('[update] stop backend and backup runtime data before install');
+    await stopBackend();
+    backupRoot = resolveUpdateBackupRoot();
+    cleanupUpdateBackupRoot();
 
-  for (let attempt = 1; attempt <= 3; attempt += 1) {
-    try {
-      backupPackagedRuntimeState();
-      break;
-    } catch (error) {
-      if (attempt === 3) {
-        setDesktopUpdateState({
-          status: UPDATE_STATUS.ERROR,
-          updateMode: UPDATE_MODE.AUTO,
-          currentVersion: resolveDesktopVersion(),
-          latestVersion: desktopUpdateState?.latestVersion || '',
-          releaseUrl: desktopUpdateState?.releaseUrl || RELEASES_PAGE_URL,
-          checkedAt: new Date().toISOString(),
-          message: `更新安装准备失败：${error instanceof Error ? error.message : String(error)}`,
-        });
-        throw error;
+    for (let attempt = 1; attempt <= 3; attempt += 1) {
+      try {
+        backupPackagedRuntimeState();
+        break;
+      } catch (error) {
+        if (attempt === 3) {
+          setDesktopUpdateState({
+            status: UPDATE_STATUS.ERROR,
+            updateMode: UPDATE_MODE.AUTO,
+            currentVersion: resolveDesktopVersion(),
+            latestVersion: desktopUpdateState?.latestVersion || '',
+            releaseUrl: desktopUpdateState?.releaseUrl || RELEASES_PAGE_URL,
+            checkedAt: new Date().toISOString(),
+            message: `更新安装准备失败：${error instanceof Error ? error.message : String(error)}`,
+          });
+          throw error;
+        }
+
+        await sleep(300 * attempt);
       }
-
-      await sleep(300 * attempt);
     }
-  }
 
-  logLine('[update] quit and install requested');
-  updater.quitAndInstall(false, true);
-  return true;
+    logLine('[update] quit and install requested');
+    updater.quitAndInstall(false, true);
+    return true;
+  } catch (error) {
+    if (backupRoot) {
+      cleanupUpdateBackupRoot();
+    }
+    logLine(`[update] install downloaded update failed: ${error instanceof Error ? error.message : String(error)}`);
+    throw error;
+  }
 }
 
 async function maybePromptInstallDownloadedUpdate(state) {
