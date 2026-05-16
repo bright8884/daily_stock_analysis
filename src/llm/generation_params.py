@@ -14,6 +14,14 @@ from typing import Any, Dict, List, Optional
 # - https://platform.moonshot.ai/docs/guide/compatibility#parameters-differences-in-request-body
 # - https://huggingface.co/moonshotai/Kimi-K2.6
 # - https://docs.litellm.ai/docs/providers/openai_compatible
+#
+# GPT-5 / o-series omission logic is a repository-local compatibility strategy
+# for the locked dependency window and should be treated as a conservative rule
+# rather than a universal provider contract:
+# - Runtime dependency window: litellm>=1.80.10,!=1.82.7,!=1.82.8,<2.0.0.
+# - Source-of-truth verification for this strategy is in regression coverage
+#   (tests/test_llm_channel_config.py, tests/test_market_analyzer_generate_text.py,
+#   tests/test_system_config_service.py).
 _FIXED_TEMPERATURE_LITELLM_MODELS: Dict[str, Dict[str, float]] = {
     "kimi-k2.6": {
         "thinking": 1.0,
@@ -134,11 +142,12 @@ def _matches_model_family(model: str, family: str) -> bool:
 
 def _should_omit_litellm_temperature(model: str) -> bool:
     """Return whether a model family should rely on the provider default temperature."""
+    normalized_family = _model_parts(model)
     return any(
         part.startswith(("gpt-5", "gpt5"))
         or part in {"o1", "o3", "o4"}
         or part.startswith(("o1-", "o3-", "o4-"))
-        for part in _model_parts(model)
+        for part in normalized_family
     )
 
 
