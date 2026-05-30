@@ -101,16 +101,21 @@ vi.mock('../../components/settings', () => ({
     </button>
   ),
   LLMChannelEditor: ({
+    items,
     onSaved,
   }: {
+    items: Array<{ key: string; value: string }>;
     onSaved: (items: Array<{ key: string; value: string }>) => void;
   }) => (
-    <button
-      type="button"
-      onClick={() => onSaved([{ key: 'LLM_CHANNELS', value: 'primary,backup' }])}
-    >
-      save llm channels
-    </button>
+    <div>
+      <div data-testid="llm-channel-editor-items">{items.map((item) => item.key).join(',')}</div>
+      <button
+        type="button"
+        onClick={() => onSaved([{ key: 'LLM_CHANNELS', value: 'primary,backup' }])}
+      >
+        save llm channels
+      </button>
+    </div>
   ),
   NotificationTestPanel: ({ items }: { items: Array<{ key: string; value: string }> }) => (
     <div>通知测试面板:{items.map((item) => item.key).join(',')}</div>
@@ -168,7 +173,7 @@ vi.mock('../../components/settings', () => ({
       };
     };
   }) => (
-    <div>
+    <div data-testid={`settings-field-${item.key}`}>
       <div>{item.key}</div>
       {item.schema?.description ? <p>{item.schema.description}</p> : null}
       {item.schema?.options?.map((option) => {
@@ -912,6 +917,79 @@ describe('SettingsPage', () => {
     await waitFor(() => expect(updateSystemConfig).toHaveBeenCalledTimes(1));
     expect(alphasiftInstall).not.toHaveBeenCalled();
     expect(refreshAfterExternalSave).not.toHaveBeenCalledWith(['ALPHASIFT_ENABLED']);
+  });
+
+  it('passes LLM channel support keys to the channel editor without rendering them as generic fields', async () => {
+    useSystemConfigMock.mockReturnValue(buildSystemConfigState({
+      activeCategory: 'ai_model',
+      itemsByCategory: {
+        ...buildSystemConfigState().itemsByCategory,
+        ai_model: [
+          {
+            key: 'LLM_CHANNELS',
+            value: 'my_proxy',
+            rawValueExists: true,
+            isMasked: false,
+            schema: {
+              key: 'LLM_CHANNELS',
+              category: 'ai_model',
+              dataType: 'string',
+              uiControl: 'textarea',
+              isSensitive: false,
+              isRequired: false,
+              isEditable: true,
+              options: [],
+              validation: {},
+              displayOrder: 1,
+            },
+          },
+          {
+            key: 'LLM_MY_PROXY_API_KEY',
+            value: 'sk-test',
+            rawValueExists: true,
+            isMasked: false,
+            schema: {
+              key: 'LLM_MY_PROXY_API_KEY',
+              category: 'ai_model',
+              dataType: 'string',
+              uiControl: 'password',
+              isSensitive: true,
+              isRequired: false,
+              isEditable: true,
+              options: [],
+              validation: {},
+              displayOrder: 9000,
+            },
+          },
+          {
+            key: 'LLM_MY_PROXY_MODELS',
+            value: 'gpt-5.5',
+            rawValueExists: true,
+            isMasked: false,
+            schema: {
+              key: 'LLM_MY_PROXY_MODELS',
+              category: 'ai_model',
+              dataType: 'string',
+              uiControl: 'text',
+              isSensitive: false,
+              isRequired: false,
+              isEditable: true,
+              options: [],
+              validation: {},
+              displayOrder: 9000,
+            },
+          },
+        ],
+      },
+    }));
+
+    render(<SettingsPage />);
+
+    expect(await screen.findByTestId('llm-channel-editor-items')).toHaveTextContent(
+      'LLM_CHANNELS,LLM_MY_PROXY_API_KEY,LLM_MY_PROXY_MODELS',
+    );
+    expect(screen.queryByTestId('settings-field-LLM_MY_PROXY_API_KEY')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('settings-field-LLM_MY_PROXY_MODELS')).not.toBeInTheDocument();
   });
 
   it('renders notification test panel before notification fields', () => {

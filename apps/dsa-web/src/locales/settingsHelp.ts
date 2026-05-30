@@ -138,6 +138,14 @@ const settingsHelpZhCN: SettingsHelpMap = {
     impact: ['影响部分 A 股基础数据、股票列表和相关增强数据获取。'],
     notes: ['不要把 token 提交到仓库或公开日志。'],
   },
+  'settings.data_source.stock_index_remote': {
+    title: '股票索引远程更新',
+    summary: '从 GitHub main 分支获取最新股票自动补全索引，并缓存到本地。',
+    usage: '默认开启；如运行环境无法访问 GitHub raw，可关闭开关。远程 URL、检查频率和超时时间均为系统内置值。',
+    valueNotes: ['该开关只控制远程刷新；关闭后仍可使用已有缓存或随应用打包的内置索引。'],
+    impact: ['影响 Web 自动补全和后端股票名称解析使用的股票简称新鲜度。'],
+    notes: ['远程下载失败时会继续使用已有缓存或随应用打包的内置索引。'],
+  },
   'settings.data_source.REALTIME_SOURCE_PRIORITY': {
     title: '实时行情源优先级',
     summary: '配置多个实时行情源的尝试顺序。',
@@ -546,6 +554,14 @@ const settingsHelpEnUS: SettingsHelpMap = {
     valueNotes: ['Available APIs depend on your Tushare permission level.'],
     impact: ['Affects some A-share base data, stock lists, and enrichment data.'],
     notes: ['Do not commit the token or print it in public logs.'],
+  },
+  'settings.data_source.stock_index_remote': {
+    title: 'Remote Stock Index',
+    summary: 'Fetches the latest stock autocomplete index from GitHub main and caches it locally.',
+    usage: 'Enabled by default. If GitHub raw is unreachable, disable it. The URL, check frequency, and timeout are built-in system values.',
+    valueNotes: ['This only controls remote refresh; existing cache and the bundled index remain usable when it is disabled.'],
+    impact: ['Affects stock-name freshness for Web autocomplete and backend stock-name resolution.'],
+    notes: ['When remote download fails, the app keeps using an existing cache or the bundled index.'],
   },
   'settings.data_source.REALTIME_SOURCE_PRIORITY': {
     title: 'Realtime Source Priority',

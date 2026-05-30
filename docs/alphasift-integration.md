@@ -47,6 +47,8 @@ alphasift.screen(strategy, market=market, max_output=max_results, use_llm=False)
 - 安装接口返回 `installed`/`already_installed`/`install_spec_is_default`，不返回 `install_spec` 明文。
 - `alphasift.get_status()` 用于可用性判断，`alphasift.list_strategies()` 用于动态策略下发，`alphasift.screen(strategy, market=..., max_output=..., use_llm=False)` 用于候选执行。
 
+锁定 commit 的契约依据是该提交内的 Python 模块 `alphasift.dsa_adapter`（包内路径 `alphasift/dsa_adapter.py`）。当前 DSA 后端仍只调用上述三个函数，Web 侧仍只向后端提交 `market`、`strategy`、`max_results`，因此与主线配置页和 API 结构合并后不需要 AlphaSift 暴露额外字段或内部 pipeline。
+
 当前自动化环境不执行联网安装与运行时真库验收；若需线上复核，请在可访问目标提交的同一 Python 环境手动完成 `pip install` 并访问 `/api/v1/alphasift/screen`，确认上述签名仍可成功执行。
 
 本地复核建议（同一 Python 环境）：
