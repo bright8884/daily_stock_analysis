@@ -50,8 +50,8 @@ For English contributors: please fill in English. All fields marked (EN) accept 
 - `Fixes #<issue_number>`（运行时行为交付且确定可关闭 Issue 时使用）
 - 无 Issue 时说明原因与验收标准 / If no issue, explain the motivation and acceptance criteria
 
-> 文档/治理类、仅做边界澄清且不含运行时交付的 PR，请选择 `Refs #<issue_number>`（或不填）并在 PR 类型中勾选 `docs`，避免误触发 Issue 自动关闭；不要使用 `Fixes`/`Closes`（二者都会触发 Issue 自动关闭）用于此类 PR。
-> For docs/governance-only changes that only clarify boundaries and do not include runtime delivery, use `Refs #<issue_number>` (or leave it blank) and select PR type `docs`; do not use `Fixes` or `Closes` (both auto-close issues) for this PR type.
+> 文档/治理类、仅做边界澄清且不含运行时交付的 PR，请使用 `docs + Refs #<issue_number>` 作为元信息（例如 `docs + Refs #1497`），并在 PR 类型中仅勾选 `docs`；避免误触发 Issue 自动关闭；不要使用 `Fixes` / `Closes`（二者都会触发 Issue 自动关闭）用于此类 PR。
+> For docs/governance-only changes that only clarify boundaries and do not include runtime delivery, use metadata as `docs + Refs #<issue_number>` (for example `docs + Refs #1497`) and select only PR type `docs`; do not use `Fixes` or `Closes` (both auto-close issues) for this PR type.
 
 ## Verification Commands And Results
 
