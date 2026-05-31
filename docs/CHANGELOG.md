@@ -22,7 +22,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - [修复] Windows 桌面端自动更新传给 NSIS 的 `/D=` 目录参数在包含空格时自动加引号，避免安装位置注册表被截断。
 - [chore] 新增通知报告渠道能力画像、PreparedMessage 与结构感知 Markdown 分片基础设施，为 #1311 全渠道渲染适配打底。
 - [chore] 预置企业微信、飞书、Telegram、钉钉、Slack 平台 renderer 元数据，暂不改变默认推送报告入口和可见版式。
-- [改进] 加固飞书、企业微信、Telegram、Slack 长消息分片与 Markdown 兼容处理，减少切断代码块、链接和行内代码的风险。
+- [改进] 通知报告默认发送路径恢复既有渠道兼容转换与分片逻辑，新增 renderer 能力仅保留为未来扩展基础。
+- [改进] 关联板块缺少类型数据时改为单行展示板块名称，避免生成整列 `N/A` 的板块表格。
 
 - [修复] 加固 LLM channel base_url 校验，避免解析差异导致 SSRF 绕过。
 - [修复] 修正 efinance ETF 日线 Eastmoney secid 路由，避免沪市 ETF 被按深市 quote id 查询导致日线为空。

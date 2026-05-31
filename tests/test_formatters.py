@@ -362,15 +362,14 @@ class TestNotificationMarkdownFormatters(unittest.TestCase):
         self.assertIn("• 600519：买入", result)
         self.assertNotIn("@@DSA_FENCED_CODE_BLOCK_", result)
 
-    def test_feishu_formatter_keeps_structure_and_converts_table(self):
+    def test_feishu_formatter_keeps_legacy_structure_and_converts_table(self):
         text = "# 日报\n\n> 风险提示\n\n| 股票 | 信号 |\n| --- | --- |\n| 600519 | 强势 |\n\n- 关注量能"
 
         result = format_feishu_markdown(text)
 
         self.assertIn("**日报**", result)
-        self.assertIn("风险提示", result)
-        self.assertNotIn("引用：", result)
-        self.assertIn("• 600519：强势", result)
+        self.assertIn("💬 风险提示", result)
+        self.assertIn("• 股票：600519 | 信号：强势", result)
         self.assertIn("• 关注量能", result)
 
     def test_telegram_formatter_uses_supported_markdown(self):
@@ -431,7 +430,6 @@ class TestNotificationMarkdownFormatters(unittest.TestCase):
         )
 
         for formatter in (
-            format_feishu_markdown,
             format_telegram_markdown,
             format_wechat_markdown,
             format_slack_mrkdwn,

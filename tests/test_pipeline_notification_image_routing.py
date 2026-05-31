@@ -138,7 +138,6 @@ class _FakeWechatNotifier:
         self._markdown_to_image_max_chars = 15000
         self.generate_dashboard_report = MagicMock(return_value="dashboard-report")
         self.generate_wechat_dashboard = MagicMock(return_value="dashboard-report")
-        self.generate_chat_report = MagicMock(return_value="chat-report")
         self.save_report_to_file = MagicMock(return_value="/tmp/report.md")
         self.is_available = MagicMock(return_value=True)
         self.get_available_channels = MagicMock(return_value=[NotificationChannel.WECHAT])
@@ -198,7 +197,6 @@ class _FakeRoutedNotifier:
         self._markdown_to_image_max_chars = 15000
         self.generate_dashboard_report = MagicMock(side_effect=self._generate_dashboard_report)
         self.generate_wechat_dashboard = MagicMock(side_effect=self._generate_dashboard_report)
-        self.generate_chat_report = MagicMock(return_value="chat-report")
         self.save_report_to_file = MagicMock(return_value="/tmp/report.md")
         self.is_available = MagicMock(return_value=True)
         self.get_available_channels = MagicMock(
@@ -260,7 +258,6 @@ class TestPipelineReportRouteFiltering(unittest.TestCase):
             ],
         )
         pipeline.notifier.send_to_telegram.assert_called_once_with("report:000001")
-        pipeline.notifier.generate_chat_report.assert_not_called()
         pipeline.notifier.send_to_wechat.assert_not_called()
         pipeline.notifier.send_to_email.assert_not_called()
         pipeline.notifier.evaluate_noise_control.assert_called_once()

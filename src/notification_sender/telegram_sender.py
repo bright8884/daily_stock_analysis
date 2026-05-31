@@ -10,18 +10,16 @@ import logging
 from typing import Optional
 import requests
 import time
+import re
 
 from src.config import Config
-from src.formatters import chunk_markdown_preserving_blocks, format_telegram_markdown, utf16_len
 
 
 logger = logging.getLogger(__name__)
 
-TELEGRAM_MESSAGE_MAX_UTF16 = 4096
-
 
 class TelegramSender:
-    
+
     def __init__(self, config: Config):
         """
         初始化 Telegram 配置
@@ -34,11 +32,11 @@ class TelegramSender:
             'chat_id': getattr(config, 'telegram_chat_id', None),
             'message_thread_id': getattr(config, 'telegram_message_thread_id', None),
         }
-    
+
     def _is_telegram_configured(self) -> bool:
         """检查 Telegram 配置是否完整"""
         return bool(self._telegram_config['bot_token'] and self._telegram_config['chat_id'])
-   
+
     def send_to_telegram(
         self,
         content: str,
@@ -49,7 +47,7 @@ class TelegramSender:
     ) -> bool:
         """
         推送消息到 Telegram 机器人
-        
+
         Telegram Bot API 格式：
         POST https://api.telegram.org/bot<token>/sendMessage
         {
@@ -57,10 +55,10 @@ class TelegramSender:
             "text": "消息内容",
             "parse_mode": "Markdown"
         }
-        
+
         Args:
             content: 消息内容（Markdown 格式）
-            
+
         Returns:
             是否发送成功
         """
@@ -78,43 +76,27 @@ class TelegramSender:
         bot_token = self._telegram_config['bot_token']
         chat_id = target_chat_id
         message_thread_id = target_message_thread_id
-        
+
         try:
             # Telegram API 端点
             api_url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
-            
-            telegram_content = self._convert_to_telegram_markdown(content)
-            max_length = TELEGRAM_MESSAGE_MAX_UTF16
 
-            if utf16_len(telegram_content) <= max_length:
+            # Telegram 消息最大长度 4096 字符
+            max_length = 4096
+
+            if len(content) <= max_length:
                 # 单条消息发送
-                return self._send_telegram_message(
-                    api_url,
-                    chat_id,
-                    telegram_content,
-                    message_thread_id,
-                    timeout_seconds=timeout_seconds,
-                    preformatted=True,
-                    plain_text_fallback=content,
-                )
+                return self._send_telegram_message(api_url, chat_id, content, message_thread_id, timeout_seconds=timeout_seconds)
             else:
                 # 分段发送长消息
-                return self._send_telegram_chunked(
-                    api_url,
-                    chat_id,
-                    telegram_content,
-                    max_length,
-                    message_thread_id,
-                    timeout_seconds=timeout_seconds,
-                    preformatted=True,
-                )
-                
+                return self._send_telegram_chunked(api_url, chat_id, content, max_length, message_thread_id, timeout_seconds=timeout_seconds)
+
         except Exception as e:
             logger.error(f"发送 Telegram 消息失败: {e}")
             import traceback
             logger.debug(traceback.format_exc())
             return False
-    
+
     def _send_telegram_message(
         self,
         api_url: str,
@@ -123,14 +105,11 @@ class TelegramSender:
         message_thread_id: Optional[str] = None,
         *,
         timeout_seconds: Optional[float] = None,
-        preformatted: bool = False,
-        plain_text_fallback: Optional[str] = None,
     ) -> bool:
         """Send a single Telegram message with exponential backoff retry (Fixes #287)"""
         # Convert Markdown to Telegram-compatible format
-        telegram_text = text if preformatted else self._convert_to_telegram_markdown(text)
-        fallback_text = text if plain_text_fallback is None else plain_text_fallback
-        
+        telegram_text = self._convert_to_telegram_markdown(text)
+
         payload = {
             "chat_id": chat_id,
             "text": telegram_text,
@@ -155,7 +134,7 @@ class TelegramSender:
                 else:
                     logger.error(f"Telegram request failed after {max_retries} attempts: {e}")
                     return False
-        
+
             if response.status_code == 200:
                 result = response.json()
                 if result.get('ok'):
@@ -164,12 +143,12 @@ class TelegramSender:
                 else:
                     error_desc = result.get('description', '未知错误')
                     logger.error(f"Telegram 返回错误: {error_desc}")
-                    
+
                     # If Markdown parsing failed, fall back to plain text
                     if self._should_fallback_to_plain_text(error_desc=error_desc):
-                        if self._send_plain_text_fallback(api_url, payload, fallback_text, timeout_seconds=timeout_seconds):
+                        if self._send_plain_text_fallback(api_url, payload, text, timeout_seconds=timeout_seconds):
                             return True
-                    
+
                     return False
             elif response.status_code == 429:
                 # Rate limited — respect Retry-After header
@@ -190,7 +169,7 @@ class TelegramSender:
                     time.sleep(delay)
                     continue
                 if self._should_fallback_to_plain_text(response_text=response.text):
-                    if self._send_plain_text_fallback(api_url, payload, fallback_text, timeout_seconds=timeout_seconds):
+                    if self._send_plain_text_fallback(api_url, payload, text, timeout_seconds=timeout_seconds):
                         return True
                 logger.error(f"Telegram 请求失败: HTTP {response.status_code}")
                 logger.error(f"响应内容: {response.text}")
@@ -222,58 +201,36 @@ class TelegramSender:
     ) -> bool:
         """Retry Telegram send without parse_mode when Markdown parsing fails."""
         logger.info("Telegram Markdown 解析失败，尝试使用纯文本格式重新发送...")
+        plain_payload = dict(payload)
+        plain_payload.pop('parse_mode', None)
+        plain_payload['text'] = text
 
         try:
-            chunks = (
-                chunk_markdown_preserving_blocks(
-                    text,
-                    TELEGRAM_MESSAGE_MAX_UTF16,
-                    len_fn=utf16_len,
-                    add_page_marker=True,
-                )
-                if utf16_len(text) > TELEGRAM_MESSAGE_MAX_UTF16
-                else [text]
-            )
-        except ValueError as e:
-            logger.error("Telegram 纯文本回退分片失败: %s", e)
+            response = requests.post(api_url, json=plain_payload, timeout=timeout_seconds or 10)
+        except (requests.exceptions.ConnectionError, requests.exceptions.Timeout) as e:
+            logger.error(f"Telegram plain-text fallback failed: {e}")
             return False
 
-        for chunk_index, chunk in enumerate(chunks, start=1):
-            if len(chunks) > 1:
-                logger.info(f"发送 Telegram 纯文本回退消息块 {chunk_index}/{len(chunks)}...")
-
-            plain_payload = dict(payload)
-            plain_payload.pop('parse_mode', None)
-            plain_payload['text'] = chunk
-
+        if response.status_code == 200:
             try:
-                response = requests.post(api_url, json=plain_payload, timeout=timeout_seconds or 10)
-            except (requests.exceptions.ConnectionError, requests.exceptions.Timeout) as e:
-                logger.error(f"Telegram plain-text fallback failed: {e}")
-                return False
-
-            if response.status_code == 200:
-                try:
-                    result = response.json()
-                except ValueError:
-                    logger.error("Telegram 纯文本回退失败: 响应不是有效 JSON")
-                    logger.error(f"响应内容: {response.text}")
-                    return False
-
-                if result.get('ok'):
-                    continue
-
-                logger.error("Telegram 纯文本回退失败: Telegram API 返回 ok=false")
+                result = response.json()
+            except ValueError:
+                logger.error("Telegram 纯文本回退失败: 响应不是有效 JSON")
                 logger.error(f"响应内容: {response.text}")
                 return False
 
-            logger.error(f"Telegram 纯文本回退失败: HTTP {response.status_code}")
+            if result.get('ok'):
+                logger.info("Telegram 消息发送成功（纯文本）")
+                return True
+
+            logger.error("Telegram 纯文本回退失败: Telegram API 返回 ok=false")
             logger.error(f"响应内容: {response.text}")
             return False
 
-        logger.info("Telegram 消息发送成功（纯文本）")
-        return True
-    
+        logger.error(f"Telegram 纯文本回退失败: HTTP {response.status_code}")
+        logger.error(f"响应内容: {response.text}")
+        return False
+
     def _send_telegram_chunked(
         self,
         api_url: str,
@@ -283,34 +240,42 @@ class TelegramSender:
         message_thread_id: Optional[str] = None,
         *,
         timeout_seconds: Optional[float] = None,
-        preformatted: bool = False,
     ) -> bool:
         """分段发送长 Telegram 消息"""
+        # 按段落分割
+        sections = content.split("\n---\n")
+
+        current_chunk = []
+        current_length = 0
         all_success = True
+        chunk_index = 1
 
-        try:
-            chunks = chunk_markdown_preserving_blocks(
-                content,
-                max_length,
-                len_fn=utf16_len,
-                add_page_marker=True,
-            )
-        except ValueError as e:
-            logger.error("Telegram 消息分片失败，单片预算不足以安全分页发送: %s", e)
-            return False
+        for section in sections:
+            section_length = len(section) + 5  # +5 for "\n---\n"
 
-        for chunk_index, chunk_content in enumerate(chunks, start=1):
-            logger.info(f"发送 Telegram 消息块 {chunk_index}/{len(chunks)}...")
-            if not self._send_telegram_message(
-                api_url,
-                chat_id,
-                chunk_content,
-                message_thread_id,
-                timeout_seconds=timeout_seconds,
-                preformatted=preformatted,
-            ):
+            if current_length + section_length > max_length:
+                # 发送当前块
+                if current_chunk:
+                    chunk_content = "\n---\n".join(current_chunk)
+                    logger.info(f"发送 Telegram 消息块 {chunk_index}...")
+                    if not self._send_telegram_message(api_url, chat_id, chunk_content, message_thread_id, timeout_seconds=timeout_seconds):
+                        all_success = False
+                    chunk_index += 1
+
+                # 重置
+                current_chunk = [section]
+                current_length = section_length
+            else:
+                current_chunk.append(section)
+                current_length += section_length
+
+        # 发送最后一块
+        if current_chunk:
+            chunk_content = "\n---\n".join(current_chunk)
+            logger.info(f"发送 Telegram 消息块 {chunk_index}...")
+            if not self._send_telegram_message(api_url, chat_id, chunk_content, message_thread_id, timeout_seconds=timeout_seconds):
                 all_success = False
-                
+
         return all_success
 
     def _send_telegram_photo(self, image_bytes: bytes) -> bool:
@@ -339,11 +304,36 @@ class TelegramSender:
     def _convert_to_telegram_markdown(self, text: str) -> str:
         """
         将标准 Markdown 转换为 Telegram 支持的格式
-        
+
         Telegram Markdown 限制：
         - 不支持 # 标题
         - 使用 *bold* 而非 **bold**
-        - 使用 _italic_ 
+        - 使用 _italic_
         """
-        return format_telegram_markdown(text)
-    
+        result = text
+
+        # 移除 # 标题标记（Telegram 不支持）
+        result = re.sub(r'^#{1,6}\s+', '', result, flags=re.MULTILINE)
+
+        # 转换 **bold** 为 *bold*
+        result = re.sub(r'\*\*(.+?)\*\*', r'*\1*', result)
+
+        # Escape special characters for Telegram Markdown, but preserve link syntax [text](url)
+        # Step 1: temporarily protect markdown links
+        import uuid as _uuid
+        _link_placeholder = f"__LINK_{_uuid.uuid4().hex[:8]}__"
+        _links = []
+        def _save_link(m):
+            _links.append(m.group(0))
+            return f"{_link_placeholder}{len(_links) - 1}"
+        result = re.sub(r'\[([^\]]+)\]\(([^)]+)\)', _save_link, result)
+
+        # Step 2: escape remaining special chars
+        for char in ['[', ']', '(', ')']:
+            result = result.replace(char, f'\\{char}')
+
+        # Step 3: restore links
+        for i, link in enumerate(_links):
+            result = result.replace(f"{_link_placeholder}{i}", link)
+
+        return result

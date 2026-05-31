@@ -747,10 +747,9 @@ def format_feishu_markdown(content: str) -> str:
 
     转换规则：
     - 飞书不支持 Markdown 标题（# / ## / ###），用加粗代替
-    - 引用块去掉 > 前缀，避免群消息里出现生硬的“引用”标签
+    - 引用块使用前缀替代
     - 分隔线统一为细线
     - 表格转换为条目列表
-    - 代码块中的 Markdown 示例保持原样
 
     Args:
         content: 原始 Markdown 内容
@@ -763,14 +762,78 @@ def format_feishu_markdown(content: str) -> str:
         >>> formatted = format_feishu_markdown(markdown)
         >>> print(formatted)
         **标题**
-        引用
+        💬 引用
         • 列1：值1 | 列2：值2
     """
+    def _flush_table_rows(buffer: List[str], output: List[str]) -> None:
+        """将表格缓冲区中的行转换为飞书格式"""
+        if not buffer:
+            return
 
-    return _transform_outside_fenced_code_blocks(
-        content,
-        _format_feishu_markdown_unprotected,
-    ).strip()
+        def _parse_row(row: str) -> List[str]:
+            """解析表格行，提取单元格"""
+            cells = [c.strip() for c in row.strip().strip('|').split('|')]
+            return [c for c in cells if c]
+
+        rows = []
+        for raw in buffer:
+            # 跳过分隔行（如 |---|---|）
+            if re.match(r'^\s*\|?\s*[:-]+\s*(\|\s*[:-]+\s*)+\|?\s*$', raw):
+                continue
+            parsed = _parse_row(raw)
+            if parsed:
+                rows.append(parsed)
+
+        if not rows:
+            return
+
+        header = rows[0]
+        data_rows = rows[1:] if len(rows) > 1 else []
+        for row in data_rows:
+            pairs = []
+            for idx, cell in enumerate(row):
+                key = header[idx] if idx < len(header) else f"列{idx + 1}"
+                pairs.append(f"{key}：{cell}")
+            output.append(f"• {' | '.join(pairs)}")
+
+    lines = []
+    table_buffer: List[str] = []
+
+    for raw_line in content.splitlines():
+        line = raw_line.rstrip()
+
+        # 处理表格行
+        if line.strip().startswith('|'):
+            table_buffer.append(line)
+            continue
+
+        # 刷新表格缓冲区
+        if table_buffer:
+            _flush_table_rows(table_buffer, lines)
+            table_buffer = []
+
+        # 转换标题（# ## ### 等）
+        if re.match(r'^#{1,6}\s+', line):
+            title = re.sub(r'^#{1,6}\s+', '', line).strip()
+            line = f"**{title}**" if title else ""
+        # 转换引用块
+        elif line.startswith('> '):
+            quote = line[2:].strip()
+            line = f"💬 {quote}" if quote else ""
+        # 转换分隔线
+        elif line.strip() == '---':
+            line = '────────'
+        # 转换列表项
+        elif line.startswith('- '):
+            line = f"• {line[2:].strip()}"
+
+        lines.append(line)
+
+    # 处理末尾的表格
+    if table_buffer:
+        _flush_table_rows(table_buffer, lines)
+
+    return "\n".join(lines).strip()
 
 
 def _format_telegram_markdown_unprotected(content: str) -> str:

@@ -10,10 +10,6 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")
 
 from src.formatters import (
     chunk_markdown_preserving_blocks,
-    format_feishu_markdown,
-    format_slack_mrkdwn,
-    format_telegram_markdown,
-    format_wechat_markdown,
     utf16_len,
     utf8_len,
 )
@@ -32,19 +28,14 @@ class NotificationReportFixtureTestCase(unittest.TestCase):
 
         self.assertEqual(expected, {path.name for path in FIXTURE_DIR.glob("*.md")})
 
-    def test_chat_formatters_keep_core_sections_and_drop_pipe_tables(self):
+    def test_report_fixtures_keep_original_markdown_constructs(self):
         for path in FIXTURE_DIR.glob("*.md"):
             content = path.read_text(encoding="utf-8")
 
-            for formatted in (
-                format_feishu_markdown(content),
-                format_wechat_markdown(content),
-                format_telegram_markdown(content),
-                format_slack_mrkdwn(content),
-            ):
-                self.assertIn("##", content)
-                self.assertNotIn("| --- |", formatted)
-                self.assertTrue("风险" in formatted or "操作" in formatted or "观察" in formatted)
+            self.assertIn("##", content)
+            self.assertTrue("风险" in content or "操作" in content or "观察" in content)
+            if "|" in content:
+                self.assertRegex(content, r"\|[^\n]+\|")
 
     def test_fixture_chunking_preserves_markdown_boundaries(self):
         content = (FIXTURE_DIR / "aggregate_report.md").read_text(encoding="utf-8")
