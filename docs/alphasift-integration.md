@@ -146,7 +146,7 @@ AlphaSift 侧已在 `ZhuLinsen/alphasift@2fc87ee8cd3dcc92350d15f06a73db349cb7e24
 
 源码运行的桌面端复用同一个 Python 后端环境，并设置 `DSA_DESKTOP_MODE=true`；通过设置页开启时如缺少适配层，会提示更新依赖或重建后端产物。
 
-打包后的桌面端不依赖运行期 `pip install`：`scripts/build-backend.ps1` 会先执行 `pip install -r requirements.txt`，再校验并收集 `alphasift.dsa_adapter` 进 PyInstaller 产物。发布包默认仍关闭；用户在 Web 设置页开启后会先检查适配层，若打包产物异常缺失，应重建或更新桌面后端。
+打包后的桌面端不依赖运行期 `pip install`：Windows/CI 使用 `scripts/build-backend.ps1`，macOS 使用 `scripts/build-backend-macos.sh`，两者均先执行 `pip install -r requirements.txt`，再校验并收集 `alphasift.dsa_adapter` 进 PyInstaller 产物。发布包默认仍关闭；用户在 Web 设置页开启后会先检查适配层，若打包产物异常缺失，应重建或更新桌面后端。
 
 ## Docker 说明
 

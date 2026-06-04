@@ -90,6 +90,8 @@ hidden_imports=(
   "src.services.analysis_service"
   "src.services.history_service"
   "src.services.alphasift_service"
+  "alphasift"
+  "alphasift.dsa_adapter"
   "uvicorn.logging"
   "uvicorn.loops"
   "uvicorn.loops.auto"
@@ -109,7 +111,7 @@ done
 
 pushd "${ROOT_DIR}" >/dev/null
 cmd=("${PYTHON_BIN}" -m PyInstaller --name stock_analysis --onedir --noconfirm --noconsole --add-data "static:static" --add-data "strategies:strategies" --collect-data litellm --collect-data tiktoken)
-cmd+=("--collect-data" "alphasift")
+cmd+=("--collect-all" "alphasift")
 cmd+=("${hidden_import_args[@]}" "main.py")
 
 echo "Running: ${cmd[*]}"
@@ -117,6 +119,36 @@ echo "Running: ${cmd[*]}"
 popd >/dev/null
 
 cp -R "${ROOT_DIR}/dist/stock_analysis" "${ROOT_DIR}/dist/backend/stock_analysis"
+
+log "Verifying packaged AlphaSift importability..."
+packaged_root="${ROOT_DIR}/dist/backend/stock_analysis"
+import_checked=0
+for packaged_python_root in "${packaged_root}/_internal" "${packaged_root}"; do
+  if [[ ! -d "${packaged_python_root}" ]]; then
+    continue
+  fi
+
+  if "${PYTHON_BIN}" - "$packaged_python_root" <<'PY'
+import importlib.machinery
+import sys
+
+import_root = sys.argv[1]
+for module_name in ("alphasift", "alphasift.dsa_adapter"):
+    spec = importlib.machinery.PathFinder.find_spec(module_name, [import_root])
+    if spec is None:
+        raise SystemExit(f"Missing {module_name} in packaged path: {import_root}")
+
+print("OK")
+PY
+  then
+    import_checked=1
+    break
+  fi
+done
+if [[ "${import_checked}" -ne 1 ]]; then
+  echo "ERROR: packaged backend artifact is missing alphasift modules in ${packaged_root}."
+  exit 1
+fi
 
 log "Verifying static asset references (packaged)..."
 packaged_static="${ROOT_DIR}/dist/backend/stock_analysis/_internal/static"
