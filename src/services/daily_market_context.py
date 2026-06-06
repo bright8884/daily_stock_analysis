@@ -60,6 +60,7 @@ class DailyMarketContext:
     created_at: Optional[datetime] = None
     history_id: Optional[int] = None
     query_id: Optional[str] = None
+    full_report: Optional[str] = None
 
     def to_safe_dict(self) -> Dict[str, Any]:
         payload: Dict[str, Any] = {
@@ -213,6 +214,11 @@ class DailyMarketContextService:
                     getattr(record, "analysis_summary", None)
                     or getattr(record, "news_content", None)
                 ),
+                fallback_full_report=(
+                    getattr(record, "news_content", None)
+                    or getattr(record, "analysis_summary", None)
+                    or None
+                ),
                 created_at=getattr(record, "created_at", None),
                 history_id=getattr(record, "id", None),
                 query_id=getattr(record, "query_id", None),
@@ -277,6 +283,7 @@ class DailyMarketContextService:
                 payload=payload,
                 source="market_review_runtime",
                 fallback_summary=fallback_summary,
+                fallback_full_report=fallback_summary,
             )
         finally:
             release_market_review_lock(lock_token)
@@ -300,6 +307,7 @@ class DailyMarketContextService:
         payload: Mapping[str, Any],
         source: str,
         fallback_summary: Optional[str] = None,
+        fallback_full_report: Optional[str] = None,
         created_at: Optional[datetime] = None,
         history_id: Optional[int] = None,
         query_id: Optional[str] = None,
@@ -312,6 +320,10 @@ class DailyMarketContextService:
         risk_signal_text = _join_text_parts(summary, _extract_market_light_signal_text(scoped_payload))
         risk_tags = _extract_risk_tags(risk_signal_text)
         position_cap = _extract_position_cap(risk_signal_text)
+        full_report = _extract_full_market_report(
+            scoped_payload=scoped_payload,
+            fallback_full_report=fallback_full_report,
+        )
         return DailyMarketContext(
             region=normalized_region,
             trade_date=trade_date,
@@ -322,6 +334,7 @@ class DailyMarketContextService:
             created_at=created_at if isinstance(created_at, datetime) else None,
             history_id=history_id if isinstance(history_id, int) else None,
             query_id=query_id if isinstance(query_id, str) and query_id else None,
+            full_report=full_report,
         )
 
 
@@ -424,6 +437,37 @@ def _payload_from_raw_record(record: Any) -> Dict[str, Any]:
     if isinstance(text, str) and text.strip():
         return {"markdown_report": text}
     return {}
+
+
+def _extract_full_market_report(
+    *,
+    scoped_payload: Mapping[str, Any],
+    fallback_full_report: Optional[str] = None,
+) -> Optional[str]:
+    candidates: List[Any] = [
+        scoped_payload.get("market_review_report"),
+        scoped_payload.get("markdown_report"),
+        fallback_full_report,
+    ]
+    for candidate in candidates:
+        if isinstance(candidate, str):
+            value = candidate.strip()
+            if value:
+                return value
+
+    sections = scoped_payload.get("sections")
+    if isinstance(sections, Iterable) and not isinstance(sections, (str, bytes, Mapping)):
+        parts: List[str] = []
+        for section in sections:
+            if not isinstance(section, Mapping):
+                continue
+            markdown = section.get("markdown")
+            if isinstance(markdown, str) and markdown.strip():
+                parts.append(markdown.strip())
+        if parts:
+            return "\n\n---\n\n".join(parts)
+
+    return None
 
 
 def _coerce_date(value: Any) -> Optional[date]:

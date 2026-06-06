@@ -584,7 +584,7 @@ class MainScheduleModeTestCase(unittest.TestCase):
              patch("main._compute_trading_day_filter", return_value=([], "cn", False)), \
              patch("main._resolve_daily_market_context_target_date", side_effect=resolve_target_date), \
              patch("src.core.pipeline.StockAnalysisPipeline", side_effect=build_pipeline), \
-             patch("main._prime_daily_market_context", return_value="大盘退潮，高风险，建议观望，仓位上限30%。") as prime_context, \
+             patch("main._prime_daily_market_context", return_value=("大盘退潮，高风险，建议观望，仓位上限30%。", "完整复盘正文")) as prime_context, \
              patch("main._run_market_review_with_shared_lock") as run_with_lock, \
              patch("src.core.market_review.run_market_review") as run_market_review:
             main.run_full_analysis(config, args, [])
@@ -599,6 +599,7 @@ class MainScheduleModeTestCase(unittest.TestCase):
                     no_market_review=False,
                     allow_generate=False,
                     target_date=target_date,
+                    return_full_report=True,
                 ),
             ]
         )
@@ -634,7 +635,7 @@ class MainScheduleModeTestCase(unittest.TestCase):
              patch("main._compute_trading_day_filter", return_value=([], "cn,us", False)), \
              patch("main._resolve_daily_market_context_target_date", return_value=target_date), \
              patch("src.core.pipeline.StockAnalysisPipeline", side_effect=build_pipeline), \
-             patch("main._prime_daily_market_context", return_value="A股缓存摘要") as prime_context, \
+             patch("main._prime_daily_market_context", return_value=("A股缓存摘要", "")) as prime_context, \
              patch("main._run_market_review_with_shared_lock", return_value="多市场复盘") as run_with_lock, \
              patch("src.core.market_review.run_market_review") as run_market_review:
             main.run_full_analysis(config, args, [])
@@ -649,6 +650,7 @@ class MainScheduleModeTestCase(unittest.TestCase):
                     no_market_review=False,
                     allow_generate=False,
                     target_date=target_date,
+                    return_full_report=True,
                 ),
                 unittest.mock.call(
                     config,
@@ -657,6 +659,7 @@ class MainScheduleModeTestCase(unittest.TestCase):
                     no_market_review=False,
                     allow_generate=False,
                     target_date=target_date,
+                    return_full_report=True,
                 ),
             ]
         )
@@ -689,16 +692,18 @@ class MainScheduleModeTestCase(unittest.TestCase):
             "src.services.daily_market_context.DailyMarketContextService",
             return_value=service,
         ) as service_cls:
-            summary = main._prime_daily_market_context(
+            summary, full_report = main._prime_daily_market_context(
                 config,
                 pipeline=pipeline,
                 region="cn",
                 no_market_review=False,
                 allow_generate=False,
                 target_date=target_date,
+                return_full_report=True,
             )
 
         self.assertEqual(summary, "历史复盘摘要")
+        self.assertEqual(full_report, "")
         service_cls.assert_called_once_with(db_manager=pipeline.db)
         call_kwargs = service.get_context.call_args.kwargs
         self.assertEqual(call_kwargs["region"], "cn")
@@ -737,7 +742,7 @@ class MainScheduleModeTestCase(unittest.TestCase):
              patch("main._compute_trading_day_filter", return_value=([], "cn", False)), \
              patch("main._resolve_daily_market_context_target_date", return_value=target_date), \
              patch("src.core.pipeline.StockAnalysisPipeline", side_effect=build_pipeline), \
-             patch("main._prime_daily_market_context", return_value="") as prime_context, \
+             patch("main._prime_daily_market_context", return_value=("", "")) as prime_context, \
              patch("main._run_market_review_with_shared_lock", side_effect=run_with_lock) as run_with_lock_mock, \
              patch("src.core.market_review.run_market_review") as run_market_review:
             main.run_full_analysis(config, args, [])
@@ -753,6 +758,7 @@ class MainScheduleModeTestCase(unittest.TestCase):
                     no_market_review=False,
                     allow_generate=False,
                     target_date=target_date,
+                    return_full_report=True,
                 ),
                 unittest.mock.call(
                     config,
@@ -761,6 +767,7 @@ class MainScheduleModeTestCase(unittest.TestCase):
                     no_market_review=False,
                     allow_generate=False,
                     target_date=target_date,
+                    return_full_report=True,
                 ),
             ]
         )
@@ -769,6 +776,83 @@ class MainScheduleModeTestCase(unittest.TestCase):
         run_market_review.assert_not_called()
         refresh.assert_called_once_with(config)
         pipeline.run.assert_called_once()
+
+    def test_run_full_analysis_reuses_cached_market_context_as_full_report(self) -> None:
+        args = self._make_args()
+        target_date = date(2026, 3, 26)
+        config = self._make_config(
+            trading_day_check_enabled=False,
+            market_review_enabled=True,
+            single_stock_notify=False,
+            merge_email_notification=True,
+            analysis_delay=0,
+            database_path=str(Path(self.temp_dir.name) / "stock_analysis.db"),
+            report_type="simple",
+        )
+        pipeline = MagicMock()
+        pipeline.run.return_value = []
+        pipeline.notifier = MagicMock(
+            is_available=MagicMock(return_value=True),
+            generate_aggregate_report=MagicMock(return_value=""),
+            send=MagicMock(return_value=True),
+        )
+        pipeline_kwargs = {}
+
+        def build_pipeline(*args, **kwargs):
+            pipeline_kwargs.update(kwargs)
+            return pipeline
+
+        with patch.object(main, "_refresh_stock_index_cache_for_analysis") as refresh, \
+             patch("main._compute_trading_day_filter", return_value=([], "cn", False)), \
+             patch("main._resolve_daily_market_context_target_date", return_value=target_date), \
+             patch("src.core.pipeline.StockAnalysisPipeline", side_effect=build_pipeline), \
+             patch(
+                "main._prime_daily_market_context",
+                return_value=(
+                    "大盘退潮，高风险，建议观望。",
+                    "## 完整大盘复盘\n市场结构偏弱，建议保守。",
+                ),
+             ) as prime_context, \
+             patch("main._run_market_review_with_shared_lock") as run_with_lock, \
+             patch("src.core.market_review.run_market_review") as run_market_review:
+            main.run_full_analysis(config, args, [])
+
+        self.assertEqual(pipeline_kwargs["daily_market_context_allow_generate"], False)
+        prime_context.assert_has_calls(
+            [
+                unittest.mock.call(
+                    config,
+                    pipeline=pipeline,
+                    region="cn",
+                    no_market_review=False,
+                    allow_generate=False,
+                    target_date=target_date,
+                    return_full_report=True,
+                ),
+                unittest.mock.call(
+                    config,
+                    pipeline=pipeline,
+                    region="cn",
+                    no_market_review=False,
+                    allow_generate=False,
+                    target_date=target_date,
+                    return_full_report=True,
+                ),
+            ]
+        )
+        run_with_lock.assert_not_called()
+        run_market_review.assert_not_called()
+        refresh.assert_called_once_with(config)
+        pipeline.run.assert_called_once_with(
+            stock_codes=[],
+            dry_run=False,
+            send_notification=True,
+            merge_notification=True,
+            current_time=unittest.mock.ANY,
+        )
+        notifier_message = pipeline.notifier.send.call_args.args[0]
+        self.assertIn("## 完整大盘复盘", notifier_message)
+        self.assertNotIn("大盘退潮，高风险，建议观望。", notifier_message)
 
     def test_market_review_mode_uses_shared_runtime_assembly(self) -> None:
         args = self._make_args(market_review=True)

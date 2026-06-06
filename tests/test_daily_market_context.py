@@ -84,6 +84,32 @@ def test_reuses_same_day_market_review_history_without_running_review() -> None:
     run_review.assert_not_called()
 
 
+def test_reuses_same_day_market_review_history_with_full_report_payload() -> None:
+    db = MagicMock()
+    record = _history_record(
+        created_at=datetime(2026, 6, 6, 9, 30),
+        region="cn",
+    )
+    db.get_analysis_history.return_value = [record]
+    service = DailyMarketContextService(
+        db_manager=db,
+        today_fn=lambda: date(2026, 6, 6),
+    )
+
+    with patch("src.services.daily_market_context.run_market_review") as run_review:
+        context = service.get_context(
+            region="cn",
+            config=SimpleNamespace(report_language="zh"),
+            notifier=MagicMock(),
+            analyzer=MagicMock(),
+            search_service=MagicMock(),
+        )
+
+    assert context is not None
+    assert context.full_report == "市场退潮，高风险，建议观望，仓位上限30%。"
+    run_review.assert_not_called()
+
+
 def test_reuses_previous_trading_day_history_after_weekend() -> None:
     db = MagicMock()
     db.get_analysis_history.return_value = [

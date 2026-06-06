@@ -26,7 +26,7 @@ from __future__ import annotations
 import multiprocessing
 import os
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
 from dotenv import dotenv_values
 from src.config import setup_env
@@ -494,10 +494,11 @@ def _prime_daily_market_context(
     no_market_review: bool,
     allow_generate: bool,
     target_date: Optional[date] = None,
-) -> str:
+    return_full_report: bool = False,
+) -> Union[str, Tuple[str, str]]:
     """Load/reuse the run's market context, avoiding unbounded background generation."""
     if no_market_review or not region:
-        return ""
+        return ("", "") if return_full_report else ""
 
     from src.services.daily_market_context import DailyMarketContextService
 
@@ -523,13 +524,17 @@ def _prime_daily_market_context(
 
     context = service.get_context(**get_context_kwargs)
     if context is None:
-        return ""
+        return ("", "") if return_full_report else ""
 
     # Runtime context generation is preload-only and must not replace the full market review run.
     if context.source != "analysis_history":
-        return ""
+        return ("", "") if return_full_report else ""
 
-    return str(getattr(context, "summary", ""))
+    summary = str(getattr(context, "summary", ""))
+    full_report = str(getattr(context, "full_report", "") or "")
+    if return_full_report:
+        return summary, full_report
+    return summary
 
 
 def _can_reuse_market_context_for_review(summary: str, region: str) -> bool:
@@ -636,6 +641,7 @@ def run_full_analysis(
             )
         market_report = ""
         market_context_summary = ""
+        market_context_full_report = ""
         pipeline = StockAnalysisPipeline(
             config=config,
             max_workers=args.workers,
@@ -645,13 +651,14 @@ def run_full_analysis(
             daily_market_context_allow_generate=False,
         )
         if should_generate_market_context:
-            market_context_summary = _prime_daily_market_context(
+            market_context_summary, market_context_full_report = _prime_daily_market_context(
                 config,
                 pipeline=pipeline,
                 region=market_review_region,
                 no_market_review=args.no_market_review,
                 allow_generate=False,
                 target_date=daily_market_context_target_date,
+                return_full_report=True,
             )
             if not _can_reuse_market_context_for_review(
                 market_context_summary,
@@ -671,13 +678,19 @@ def run_full_analysis(
                 )
                 market_report = _market_review_report_text(review_result)
                 if market_report:
-                    market_context_summary = _prime_daily_market_context(
+                    market_context_full_report = market_report
+                if market_report:
+                    (
+                        market_context_summary,
+                        market_context_full_report,
+                    ) = _prime_daily_market_context(
                         config,
                         pipeline=pipeline,
                         region=market_review_region,
                         no_market_review=args.no_market_review,
                         allow_generate=False,
                         target_date=daily_market_context_target_date,
+                        return_full_report=True,
                     )
 
         # 1. 运行个股分析
@@ -714,13 +727,17 @@ def run_full_analysis(
             )
             # 避免重叠运行下重复复盘：先复检一次历史上下文（仅读取，不生成）。
             if not can_reuse_market_context and not market_context_summary:
-                market_context_summary = _prime_daily_market_context(
+                (
+                    market_context_summary,
+                    market_context_full_report,
+                ) = _prime_daily_market_context(
                     config,
                     pipeline=pipeline,
                     region=market_review_region,
                     no_market_review=args.no_market_review,
                     allow_generate=False,
                     target_date=daily_market_context_target_date,
+                    return_full_report=True,
                 )
                 can_reuse_market_context = _can_reuse_market_context_for_review(
                     market_context_summary,
@@ -742,13 +759,17 @@ def run_full_analysis(
 
             # 如果复盘仍未执行成功，再做一次复用历史/缓存读取（防止与并发运行竞态）。
             if not review_result:
-                market_context_summary = _prime_daily_market_context(
+                (
+                    market_context_summary,
+                    market_context_full_report,
+                ) = _prime_daily_market_context(
                     config,
                     pipeline=pipeline,
                     region=market_review_region,
                     no_market_review=args.no_market_review,
                     allow_generate=False,
                     target_date=daily_market_context_target_date,
+                    return_full_report=True,
                 )
                 can_reuse_market_context = _can_reuse_market_context_for_review(
                     market_context_summary,
@@ -759,7 +780,7 @@ def run_full_analysis(
             if review_result:
                 market_report = review_result
             elif can_reuse_market_context:
-                market_report = market_context_summary
+                market_report = market_context_full_report or market_context_summary
 
         # Issue #190: 合并推送（个股+大盘复盘）
         if merge_notification and (results or market_report) and not args.no_notify:
