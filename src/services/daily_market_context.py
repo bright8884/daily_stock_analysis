@@ -382,8 +382,11 @@ class DailyMarketContextService:
         persist_market_review_history: bool = True,
         current_query_id: Optional[str] = None,
         require_query_id_match: bool = False,
+        lock_token: Optional[Any] = None,
     ) -> Optional[DailyMarketContext]:
-        lock_token = try_acquire_market_review_lock(config)
+        owns_lock = lock_token is None
+        if lock_token is None:
+            lock_token = try_acquire_market_review_lock(config)
         report_language = normalize_report_language(getattr(config, "report_language", "zh"))
         cache_key = self._cache_key(
             context_date=target_date,
@@ -458,7 +461,8 @@ class DailyMarketContextService:
             )
             return None
         finally:
-            release_market_review_lock(lock_token)
+            if owns_lock:
+                release_market_review_lock(lock_token)
 
     def _wait_for_market_review_history_after_lock(
         self,
@@ -497,6 +501,21 @@ class DailyMarketContextService:
                     if context is not None:
                         self._cache[cache_key] = context
                         return context
+                    generated = self._run_market_review_context(
+                        region=region,
+                        target_date=target_date,
+                        config=config,
+                        notifier=None,
+                        analyzer=None,
+                        search_service=None,
+                        persist_market_review_history=True,
+                        current_query_id=current_query_id,
+                        require_query_id_match=require_query_id_match,
+                        lock_token=lock_token,
+                    )
+                    if generated is not None:
+                        self._cache[cache_key] = generated
+                        return generated
                     logger.warning(
                         "市场复盘上下文锁已释放但仍未命中同日上下文，允许继续分析流程: region=%s, target_date=%s",
                         region,

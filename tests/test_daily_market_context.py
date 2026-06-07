@@ -666,7 +666,7 @@ def test_get_context_waits_for_market_review_generation_when_lock_is_held() -> N
     assert db.get_analysis_history.call_count == 4
 
 
-def test_get_context_stops_waiting_after_market_review_lock_is_released_without_history() -> None:
+def test_get_context_generates_context_when_lock_is_released_without_matching_history() -> None:
     db = MagicMock()
     db.get_analysis_history.return_value = []
     service = DailyMarketContextService(
@@ -683,7 +683,10 @@ def test_get_context_stops_waiting_after_market_review_lock_is_released_without_
             side_effect=[None, None, released_lock],
         ) as acquire_lock, \
          patch("src.services.daily_market_context.release_market_review_lock") as release_lock, \
-         patch("src.services.daily_market_context.run_market_review") as run_review:
+         patch(
+            "src.services.daily_market_context.run_market_review",
+            return_value="市场偏弱，结构性震荡，建议回避",
+        ) as run_review:
         context = service.get_context(
             region="cn",
             config=SimpleNamespace(report_language="zh"),
@@ -693,11 +696,13 @@ def test_get_context_stops_waiting_after_market_review_lock_is_released_without_
             force_refresh=True,
         )
 
-    assert context is None
+    assert context is not None
+    assert context.source == "market_review_runtime"
+    assert context.summary == "市场偏弱，结构性震荡，建议回避"
     assert acquire_lock.call_count == 3
     assert sleep_mock.call_count == 1
     release_lock.assert_called_once_with(released_lock)
-    run_review.assert_not_called()
+    run_review.assert_called_once()
     assert db.get_analysis_history.call_count == 3
 
 
