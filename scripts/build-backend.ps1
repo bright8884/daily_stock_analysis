@@ -149,9 +149,9 @@ if (-not (Test-Path $packagedEntry)) {
 $previousProbe = $env:DSA_PACKAGED_ALPHASIFT_IMPORT_PROBE
 try {
   $env:DSA_PACKAGED_ALPHASIFT_IMPORT_PROBE = '1'
-  & $packagedEntry
-  if ($LASTEXITCODE -ne 0) {
-    throw "Packaged backend cannot import alphasift.dsa_adapter; probe exited with code $LASTEXITCODE."
+  $probeProcess = Start-Process -FilePath $packagedEntry -Wait -PassThru
+  if ($probeProcess.ExitCode -ne 0) {
+    throw "Packaged backend cannot import alphasift.dsa_adapter; probe exited with code $($probeProcess.ExitCode)."
   }
 } finally {
   if ($null -eq $previousProbe) {

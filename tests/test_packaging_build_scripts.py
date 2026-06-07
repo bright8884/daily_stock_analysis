@@ -22,6 +22,9 @@ def test_windows_backend_build_script_collects_alphasift_adapter() -> None:
     assert "hiddenImports" in script
     assert "Verifying packaged AlphaSift importability" in script
     assert "DSA_PACKAGED_ALPHASIFT_IMPORT_PROBE" in script
+    assert "Start-Process -FilePath $packagedEntry -Wait -PassThru" in script
+    assert "$probeProcess.ExitCode" in script
+    assert "& $packagedEntry" not in script
     assert "Packaged backend cannot import alphasift.dsa_adapter" in script
     assert "DSA_PACKAGED_ALPHASIFT_IMPORT_PROBE" in main_py
     assert 'importlib.import_module("alphasift.dsa_adapter")' in main_py
