@@ -407,6 +407,10 @@ class DailyMarketContextService:
                 require_query_id_match=require_query_id_match,
                 report_language=report_language,
                 cache_key=cache_key,
+                notifier=notifier,
+                analyzer=analyzer,
+                search_service=search_service,
+                persist_market_review_history=persist_market_review_history,
             )
 
         try:
@@ -474,6 +478,10 @@ class DailyMarketContextService:
         require_query_id_match: bool,
         report_language: str,
         cache_key: Tuple[Any, ...],
+        notifier: Any,
+        analyzer: Any = None,
+        search_service: Any = None,
+        persist_market_review_history: bool = True,
     ) -> Optional[DailyMarketContext]:
         wait_interval = _MARKET_REVIEW_LOCK_WAIT_INITIAL_INTERVAL_SECONDS
         for attempt in range(_MARKET_REVIEW_LOCK_WAIT_MAX_ATTEMPTS):
@@ -505,10 +513,10 @@ class DailyMarketContextService:
                         region=region,
                         target_date=target_date,
                         config=config,
-                        notifier=None,
-                        analyzer=None,
-                        search_service=None,
-                        persist_market_review_history=True,
+                        notifier=notifier,
+                        analyzer=analyzer,
+                        search_service=search_service,
+                        persist_market_review_history=persist_market_review_history,
                         current_query_id=current_query_id,
                         require_query_id_match=require_query_id_match,
                         lock_token=lock_token,

@@ -675,6 +675,9 @@ def test_get_context_generates_context_when_lock_is_released_without_matching_hi
     )
     released_lock = object()
 
+    notifier = MagicMock()
+    analyzer = MagicMock()
+    search_service = MagicMock()
     with patch(
         "src.services.daily_market_context.time.sleep",
     ) as sleep_mock, \
@@ -686,13 +689,13 @@ def test_get_context_generates_context_when_lock_is_released_without_matching_hi
          patch(
             "src.services.daily_market_context.run_market_review",
             return_value="市场偏弱，结构性震荡，建议回避",
-        ) as run_review:
+         ) as run_review:
         context = service.get_context(
             region="cn",
             config=SimpleNamespace(report_language="zh"),
-            notifier=MagicMock(),
-            analyzer=MagicMock(),
-            search_service=MagicMock(),
+            notifier=notifier,
+            analyzer=analyzer,
+            search_service=search_service,
             force_refresh=True,
         )
 
@@ -703,6 +706,10 @@ def test_get_context_generates_context_when_lock_is_released_without_matching_hi
     assert sleep_mock.call_count == 1
     release_lock.assert_called_once_with(released_lock)
     run_review.assert_called_once()
+    kwargs = run_review.call_args.kwargs
+    assert kwargs["notifier"] is notifier
+    assert kwargs["analyzer"] is analyzer
+    assert kwargs["search_service"] is search_service
     assert db.get_analysis_history.call_count == 3
 
 
