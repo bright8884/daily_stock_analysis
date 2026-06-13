@@ -47,7 +47,7 @@ def test_tencent_fetcher_parses_qfq_daily_response() -> None:
         df = fetcher.get_daily_data("000001", start_date="2026-05-01", end_date="2026-05-10")
 
     assert captured["url"] == "https://web.ifzq.gtimg.cn/appstock/app/fqkline/get"
-    assert captured["params"]["param"].startswith("sz000001,day,,,")
+    assert captured["params"]["param"].startswith("sz000001,day,20260501,20260510,")
     assert captured["params"]["param"].endswith(",qfq")
     assert list(df.columns) == [
         "date",
@@ -66,6 +66,42 @@ def test_tencent_fetcher_parses_qfq_daily_response() -> None:
     assert len(df) == 2
     assert float(df.iloc[0]["close"]) == 10.5
     assert float(df.iloc[1]["amount"]) == 77890.0
+
+
+def test_tencent_fetcher_requests_explicit_historical_date_window() -> None:
+    payload = {
+        "data": {
+            "sz000001": {
+                "qfqday": [
+                    ["2020-05-04", "8.00", "8.20", "8.40", "7.80", "5000", "20000"],
+                ]
+            }
+        }
+    }
+
+    class FakeResponse:
+        def raise_for_status(self) -> None:
+            return None
+
+        def json(self):
+            return payload
+
+    captured = {}
+
+    def fake_get(url, **kwargs):
+        captured["url"] = url
+        captured.update(kwargs)
+        return FakeResponse()
+
+    fetcher = TencentFetcher()
+    with patch("data_provider.tencent_fetcher.requests.get", fake_get):
+        df = fetcher.get_daily_data("000001", start_date="2020-05-01", end_date="2020-05-31")
+
+    assert captured["url"] == "https://web.ifzq.gtimg.cn/appstock/app/fqkline/get"
+    assert ",day,20200501,20200531," in captured["params"]["param"]
+    assert captured["params"]["param"].endswith(",qfq")
+    assert len(df) == 1
+    assert float(df.iloc[0]["close"]) == 8.2
 
 
 def test_tencent_fetcher_preserves_amount_column_when_missing() -> None:
@@ -137,5 +173,5 @@ def test_tencent_fetcher_rejects_capped_incomplete_history() -> None:
     with patch("data_provider.tencent_fetcher.requests.get", fake_get):
         df = TencentFetcher().get_daily_data("000001", start_date="2020-01-01", end_date="2026-05-10")
 
-    assert ",800," in captured["params"]["param"]
+    assert ",day,20200101,20260510,800,qfq" in captured["params"]["param"]
     assert df.empty

@@ -34,9 +34,16 @@ class TencentFetcher(BaseFetcher):
             raise DataFetchError(f"TencentFetcher unsupported stock code: {stock_code}")
 
         lookback = _estimate_lookback_days(start_date=start_date, end_date=end_date)
+        explicit_start = _format_tencent_date(start_date)
+        explicit_end = _format_tencent_date(end_date)
+        explicit_window = (
+            f"{explicit_start},{explicit_end}"
+            if explicit_start and explicit_end
+            else ","
+        )
         response = requests.get(
             self._KLINE_ENDPOINT,
-            params={"param": f"{symbol},day,,,{lookback},qfq"},
+            params={"param": f"{symbol},day,{explicit_window},{lookback},qfq"},
             headers={"User-Agent": "Mozilla/5.0", "Accept": "application/json,text/plain,*/*"},
             timeout=self._HTTP_TIMEOUT_SECONDS,
         )
@@ -128,6 +135,13 @@ def _is_capped_history_incomplete(*, first_returned_date: str, start_date: str, 
     except ValueError:
         return False
     return first > requested_start
+
+
+def _format_tencent_date(date_text: str) -> Optional[str]:
+    try:
+        return datetime.strptime(date_text, "%Y-%m-%d").strftime("%Y%m%d")
+    except ValueError:
+        return None
 
 
 def _extract_kline_rows(payload: dict[str, Any], *, symbol: str) -> list[dict[str, Any]]:
