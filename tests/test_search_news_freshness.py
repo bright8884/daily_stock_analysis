@@ -971,6 +971,42 @@ class SearchNewsFreshnessTestCase(unittest.TestCase):
         )
         self.assertEqual(resp.results[0].relevance_category, "direct_company_news")
 
+    def test_label_only_official_source_is_honored_without_url(self) -> None:
+        """Exact official labels without URL should still receive official-source treatment."""
+        fresh = datetime.now().date().isoformat()
+        service, _ = self._create_service_with_mock_provider(
+            news_max_age_days=3,
+            news_strategy_profile="short",
+            response=_response(
+                [
+                    SearchResult(
+                        title="董事会公告",
+                        snippet="股份回购事项。",
+                        url="",
+                        source="hkexnews",
+                        published_date=fresh,
+                    ),
+                    _result(
+                        "腾讯控股 00700 发布回购公告",
+                        fresh,
+                        snippet="腾讯控股披露股份回购公告。",
+                        url="https://finance.example.invalid/news/00700-buyback",
+                        source="finance.example.invalid",
+                    ),
+                ]
+            ),
+        )
+
+        resp = service.search_stock_news("00700.HK", "腾讯控股", max_results=2)
+
+        self.assertEqual(
+            [item.title for item in resp.results],
+            ["腾讯控股 00700 发布回购公告", "董事会公告"],
+        )
+        official_result = resp.results[1]
+        self.assertGreater(official_result.relevance_score or 0, 0)
+        self.assertIn("来源接近公告或交易所渠道", official_result.relevance_reasons)
+
     def test_spoofed_official_tokens_do_not_bypass_news_admission(self) -> None:
         """Official exemptions should require trusted parsed hosts or exact source labels."""
         fresh = datetime.now().date().isoformat()

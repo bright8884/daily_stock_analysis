@@ -2738,11 +2738,25 @@ class SearchService:
         )
         return (urlparse(parse_value).hostname or "").rstrip(".")
 
+    @staticmethod
+    def _source_resembles_hostname(value: Any) -> bool:
+        raw = str(value or "").strip().lower()
+        if not raw or re.search(r"\s", raw):
+            return False
+        if re.match(r"^[a-z][a-z0-9+.-]*://", raw) or raw.startswith("//"):
+            return True
+        return bool(re.search(r"\.[a-z0-9-]{2,}(?::\d+)?/?$", raw))
+
     @classmethod
     def _is_trusted_official_news_source(cls, item: SearchResult) -> bool:
         """Only trust official exemptions from trusted hosts; fallback to labels only when URL host is absent."""
         url_host = cls._candidate_hostname(item.url)
-        source_host = cls._candidate_hostname(item.source)
+        source_label = str(item.source or "").strip().lower()
+        source_host = (
+            cls._candidate_hostname(item.source)
+            if cls._source_resembles_hostname(item.source)
+            else ""
+        )
 
         if url_host:
             # 有 URL 时以 URL 主机为准，避免 source label/host 伪装的官方放行。
@@ -2757,7 +2771,6 @@ class SearchService:
                 for official_host in cls._OFFICIAL_SOURCE_HOSTS
             )
 
-        source_label = str(item.source or "").strip().lower()
         return source_label in cls._OFFICIAL_SOURCE_LABELS
 
     @classmethod
