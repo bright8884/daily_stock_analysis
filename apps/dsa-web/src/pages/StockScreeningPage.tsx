@@ -32,6 +32,7 @@ import {
   type AlphaSiftCandidate,
   type AlphaSiftHotspotDetail,
   type AlphaSiftHotspot,
+  type AlphaSiftHotspotsResponse,
   type AlphaSiftScreenResponse,
   type AlphaSiftScreenTaskStatus,
   type AlphaSiftStrategy,
