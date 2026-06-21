@@ -1,5 +1,6 @@
 import type React from 'react';
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { Clock, Play, Plus, RefreshCw, Trash2 } from 'lucide-react';
 import { useAuth, useSystemConfig } from '../hooks';
 import { useUiLanguage } from '../contexts/UiLanguageContext';
 import { createParsedApiError, getParsedApiError, type ParsedApiError } from '../api/error';
@@ -21,8 +22,8 @@ import {
 } from '../components/settings';
 import { WEB_BUILD_INFO } from '../utils/constants';
 import { getCategoryDescription } from '../utils/systemConfigI18n';
-import type { SystemConfigCategory } from '../types/systemConfig';
-import type { UiTextKey } from '../i18n/uiText';
+import type { ConfigValidationIssue, SchedulerStatusResponse, SystemConfigCategory, SystemConfigItem } from '../types/systemConfig';
+import type { UiLanguage, UiTextKey } from '../i18n/uiText';
 
 type DesktopWindow = Window & {
   dsaDesktop?: {
@@ -209,6 +210,307 @@ function formatEnvBackupFilename(isDesktopRuntime: boolean) {
   return `${isDesktopRuntime ? 'dsa-desktop-env' : 'dsa-env'}_${date}_${time}.env`;
 }
 
+const SCHEDULE_TIME_PATTERN = /^(?:[01]\d|2[0-3]):[0-5]\d$/;
+const SCHEDULER_DEFAULT_TIME = '18:00';
+const SCHEDULER_SETTING_KEYS = new Set([
+  'SCHEDULE_ENABLED',
+  'SCHEDULE_TIME',
+  'SCHEDULE_TIMES',
+  'SCHEDULE_RUN_IMMEDIATELY',
+]);
+
+function getConfigItem(items: SystemConfigItem[], key: string) {
+  return items.find((item) => item.key === key);
+}
+
+function isEnabledConfigValue(value: unknown) {
+  return String(value ?? '').trim().toLowerCase() === 'true';
+}
+
+function parseScheduleTimes(scheduleTimesValue?: string, fallbackValue?: string) {
+  const values = String(scheduleTimesValue ?? '')
+    .split(',')
+    .map((value) => value.trim())
+    .filter(Boolean);
+
+  if (values.length > 0) {
+    return values;
+  }
+
+  const fallback = String(fallbackValue ?? '').trim();
+  return fallback ? [fallback] : [SCHEDULER_DEFAULT_TIME];
+}
+
+function serializeScheduleTimes(times: string[]) {
+  return times.map((time) => time.trim()).filter(Boolean).join(',');
+}
+
+function formatSchedulerTimestamp(value: string | null | undefined, language: UiLanguage) {
+  if (!value) {
+    return '-';
+  }
+
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return value;
+  }
+
+  return new Intl.DateTimeFormat(language === 'en' ? 'en-US' : 'zh-CN', {
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  }).format(date);
+}
+
+type SchedulerSettingsCardProps = {
+  items: SystemConfigItem[];
+  disabled: boolean;
+  issueByKey: Record<string, ConfigValidationIssue[]>;
+  onChange: (key: string, value: string) => void;
+  t: (key: UiTextKey, params?: Record<string, string | number>) => string;
+  language: UiLanguage;
+};
+
+const SchedulerSettingsCard: React.FC<SchedulerSettingsCardProps> = ({
+  items,
+  disabled,
+  issueByKey,
+  onChange,
+  t,
+  language,
+}) => {
+  const scheduleEnabledItem = getConfigItem(items, 'SCHEDULE_ENABLED');
+  const scheduleTimesItem = getConfigItem(items, 'SCHEDULE_TIMES');
+  const scheduleTimeItem = getConfigItem(items, 'SCHEDULE_TIME');
+  const hasSchedulerSettings = Boolean(scheduleEnabledItem || scheduleTimesItem || scheduleTimeItem);
+  const [status, setStatus] = useState<SchedulerStatusResponse | null>(null);
+  const [isRefreshingStatus, setIsRefreshingStatus] = useState(false);
+  const [isRunningNow, setIsRunningNow] = useState(false);
+  const [statusError, setStatusError] = useState<ParsedApiError | null>(null);
+  const [runNowError, setRunNowError] = useState<ParsedApiError | null>(null);
+  const [runNowSuccess, setRunNowSuccess] = useState('');
+
+  const refreshSchedulerStatus = useCallback(async () => {
+    setStatusError(null);
+    setIsRefreshingStatus(true);
+    try {
+      const payload = await systemConfigApi.getSchedulerStatus();
+      setStatus(payload);
+    } catch (error: unknown) {
+      setStatusError(getParsedApiError(error));
+    } finally {
+      setIsRefreshingStatus(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!hasSchedulerSettings) {
+      return;
+    }
+    void refreshSchedulerStatus();
+  }, [hasSchedulerSettings, refreshSchedulerStatus]);
+
+  if (!hasSchedulerSettings) {
+    return null;
+  }
+
+  const scheduleEnabled = isEnabledConfigValue(scheduleEnabledItem?.value);
+  const scheduleTimes = parseScheduleTimes(
+    String(scheduleTimesItem?.value ?? ''),
+    String(scheduleTimeItem?.value ?? ''),
+  );
+  const timeTargetKey = scheduleTimesItem ? 'SCHEDULE_TIMES' : 'SCHEDULE_TIME';
+  const statusEnabled = status?.enabled ?? scheduleEnabled;
+  const effectiveStatusTimes = status?.scheduleTimes?.length ? status.scheduleTimes : scheduleTimes.filter(Boolean);
+  const validationIssues = [
+    ...(issueByKey.SCHEDULE_ENABLED || []),
+    ...(issueByKey.SCHEDULE_TIMES || []),
+    ...(issueByKey.SCHEDULE_TIME || []),
+  ];
+
+  const updateScheduleTimes = (nextTimes: string[]) => {
+    if (timeTargetKey === 'SCHEDULE_TIME') {
+      onChange(timeTargetKey, nextTimes[0] || '');
+      return;
+    }
+    onChange(timeTargetKey, serializeScheduleTimes(nextTimes));
+  };
+
+  const runSchedulerNow = async () => {
+    setRunNowError(null);
+    setRunNowSuccess('');
+    setIsRunningNow(true);
+    try {
+      await systemConfigApi.runSchedulerNow();
+      setRunNowSuccess(t('settings.schedulerRunAccepted'));
+      await refreshSchedulerStatus();
+    } catch (error: unknown) {
+      setRunNowError(getParsedApiError(error));
+    } finally {
+      setIsRunningNow(false);
+    }
+  };
+
+  return (
+    <SettingsSectionCard
+      title={t('settings.schedulerTitle')}
+      description={t('settings.schedulerDescription')}
+    >
+      <div data-testid="scheduler-settings-card" className="space-y-4">
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-[minmax(0,1.3fr)_minmax(260px,0.7fr)]">
+          <div className="space-y-4 rounded-2xl border settings-border bg-background/35 px-4 py-4">
+            <label className="flex items-start gap-3">
+              <input
+                type="checkbox"
+                className="mt-1 h-4 w-4 rounded border-border text-cyan focus:ring-cyan/20"
+                checked={scheduleEnabled}
+                disabled={disabled || !scheduleEnabledItem?.schema?.isEditable}
+                onChange={(event) => onChange('SCHEDULE_ENABLED', event.target.checked ? 'true' : 'false')}
+              />
+              <span>
+                <span className="block text-sm font-semibold text-foreground">{t('settings.schedulerEnable')}</span>
+                <span className="block text-xs leading-6 text-muted-text">{t('settings.schedulerEnableDescription')}</span>
+              </span>
+            </label>
+
+            <div className="space-y-3">
+              <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
+                <Clock className="h-4 w-4" aria-hidden="true" />
+                {t('settings.schedulerTimes')}
+              </div>
+              <div className="space-y-2">
+                {scheduleTimes.map((time, index) => (
+                  <div key={index} className="flex items-center gap-2">
+                    <input
+                      data-testid={`scheduler-time-input-${index}`}
+                      type="time"
+                      value={SCHEDULE_TIME_PATTERN.test(time) ? time : ''}
+                      aria-label={t('settings.schedulerTimeInputAria', { index: index + 1 })}
+                      className="h-10 min-w-0 flex-1 rounded-xl border settings-border bg-card px-3 text-sm text-foreground shadow-inner outline-none transition focus:border-cyan/60 focus:ring-4 focus:ring-cyan/10"
+                      disabled={disabled}
+                      onChange={(event) => {
+                        const nextTimes = scheduleTimes.map((currentTime, currentIndex) => (
+                          currentIndex === index ? event.target.value : currentTime
+                        ));
+                        updateScheduleTimes(nextTimes);
+                      }}
+                    />
+                    <Button
+                      type="button"
+                      variant="settings-secondary"
+                      size="sm"
+                      className="h-10 w-10 px-0"
+                      aria-label={t('settings.schedulerRemoveTime')}
+                      title={t('settings.schedulerRemoveTime')}
+                      disabled={disabled || scheduleTimes.length <= 1}
+                      onClick={() => {
+                        updateScheduleTimes(scheduleTimes.filter((_, currentIndex) => currentIndex !== index));
+                      }}
+                    >
+                      <Trash2 className="h-4 w-4" aria-hidden="true" />
+                    </Button>
+                  </div>
+                ))}
+              </div>
+              <Button
+                type="button"
+                variant="settings-secondary"
+                size="sm"
+                data-testid="scheduler-add-time-button"
+                disabled={disabled}
+                onClick={() => updateScheduleTimes([...scheduleTimes, SCHEDULER_DEFAULT_TIME])}
+              >
+                <Plus className="h-4 w-4" aria-hidden="true" />
+                {t('settings.schedulerAddTime')}
+              </Button>
+            </div>
+          </div>
+
+          <div className="space-y-3 rounded-2xl border settings-border bg-background/35 px-4 py-4">
+            <div>
+              <p className="text-sm font-semibold text-foreground">{t('settings.schedulerStatus')}</p>
+              <p className="mt-1 text-xs leading-6 text-muted-text">
+                {status?.running
+                  ? t('settings.schedulerRunning')
+                  : statusEnabled
+                    ? t('settings.schedulerEnabled')
+                    : t('settings.schedulerDisabled')}
+              </p>
+            </div>
+            <dl className="grid grid-cols-1 gap-2 text-xs">
+              <div className="rounded-xl border settings-border bg-card/60 px-3 py-2">
+                <dt className="text-muted-text">{t('settings.schedulerEffectiveTimes')}</dt>
+                <dd className="mt-1 font-medium text-foreground">{effectiveStatusTimes.join(', ') || '-'}</dd>
+              </div>
+              <div className="rounded-xl border settings-border bg-card/60 px-3 py-2">
+                <dt className="text-muted-text">{t('settings.schedulerNextRun')}</dt>
+                <dd className="mt-1 font-medium text-foreground">
+                  {formatSchedulerTimestamp(status?.nextRunAt, language)}
+                </dd>
+              </div>
+              <div className="rounded-xl border settings-border bg-card/60 px-3 py-2">
+                <dt className="text-muted-text">{t('settings.schedulerLastSuccess')}</dt>
+                <dd className="mt-1 font-medium text-foreground">
+                  {formatSchedulerTimestamp(status?.lastSuccessAt || status?.lastRunAt, language)}
+                </dd>
+              </div>
+              {status?.lastError ? (
+                <div className="rounded-xl border border-danger/40 bg-danger/10 px-3 py-2">
+                  <dt className="text-danger">{t('settings.schedulerLastError')}</dt>
+                  <dd className="mt-1 break-words text-danger">{status.lastError}</dd>
+                </div>
+              ) : null}
+            </dl>
+            <div className="flex flex-wrap items-center gap-2">
+              <Button
+                type="button"
+                variant="settings-secondary"
+                size="sm"
+                data-testid="scheduler-refresh-status-button"
+                disabled={disabled || isRefreshingStatus}
+                isLoading={isRefreshingStatus}
+                loadingText={t('settings.schedulerRefreshing')}
+                onClick={() => void refreshSchedulerStatus()}
+              >
+                <RefreshCw className="h-4 w-4" aria-hidden="true" />
+                {t('settings.schedulerRefresh')}
+              </Button>
+              <Button
+                type="button"
+                variant="settings-primary"
+                size="sm"
+                data-testid="scheduler-run-now-button"
+                disabled={disabled || isRunningNow}
+                isLoading={isRunningNow}
+                loadingText={t('settings.schedulerRunningNow')}
+                onClick={() => void runSchedulerNow()}
+              >
+                <Play className="h-4 w-4" aria-hidden="true" />
+                {t('settings.schedulerRunNow')}
+              </Button>
+            </div>
+          </div>
+        </div>
+
+        {validationIssues.length ? (
+          <div className="space-y-1 text-xs text-danger">
+            {validationIssues.map((issue) => (
+              <p key={`${issue.key}-${issue.code}`}>{issue.message}</p>
+            ))}
+          </div>
+        ) : null}
+        {statusError ? <ApiErrorAlert error={statusError} /> : null}
+        {runNowError ? <ApiErrorAlert error={runNowError} /> : null}
+        {!runNowError && runNowSuccess ? (
+          <SettingsAlert title={t('settings.actionSuccess')} message={runNowSuccess} variant="success" />
+        ) : null}
+      </div>
+    </SettingsSectionCard>
+  );
+};
+
 const SettingsPage: React.FC = () => {
   const { authEnabled, passwordChangeable } = useAuth();
   const { language: uiLanguage, t } = useUiLanguage();
@@ -364,6 +666,7 @@ const SettingsPage: React.FC = () => {
   ]);
   const SYSTEM_HIDDEN_KEYS = new Set([
     'ADMIN_AUTH_ENABLED',
+    ...SCHEDULER_SETTING_KEYS,
   ]);
   const DATA_SOURCE_HIDDEN_KEYS = new Set([
     'ALPHASIFT_ENABLED',
@@ -731,6 +1034,16 @@ const SettingsPage: React.FC = () => {
               </SettingsSectionCard>
             ) : null}
             {activeCategory === 'system' ? <AuthSettingsCard /> : null}
+            {activeCategory === 'system' ? (
+              <SchedulerSettingsCard
+                items={rawActiveItems}
+                disabled={isSaving || isLoading}
+                issueByKey={issueByKey}
+                onChange={setDraftValue}
+                t={t}
+                language={uiLanguage}
+              />
+            ) : null}
             {activeCategory === 'system' ? (
               <SettingsSectionCard
                 title={t('settings.versionInfo')}

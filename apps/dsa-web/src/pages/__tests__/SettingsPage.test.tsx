@@ -6,7 +6,9 @@ import SettingsPage from '../SettingsPage';
 
 const {
   exportEnv,
+  getSchedulerStatus,
   importEnv,
+  runSchedulerNow,
   updateSystemConfig,
   alphasiftEnable,
   alphasiftInstall,
@@ -33,7 +35,9 @@ const {
   webBuildInfoMock,
 } = vi.hoisted(() => ({
   exportEnv: vi.fn(),
+  getSchedulerStatus: vi.fn(),
   importEnv: vi.fn(),
+  runSchedulerNow: vi.fn(),
   updateSystemConfig: vi.fn(),
   alphasiftEnable: vi.fn(),
   alphasiftInstall: vi.fn(),
@@ -76,7 +80,9 @@ vi.mock('../../hooks', () => ({
 vi.mock('../../api/systemConfig', () => ({
   systemConfigApi: {
     exportEnv: (...args: unknown[]) => exportEnv(...args),
+    getSchedulerStatus: (...args: unknown[]) => getSchedulerStatus(...args),
     importEnv: (...args: unknown[]) => importEnv(...args),
+    runSchedulerNow: (...args: unknown[]) => runSchedulerNow(...args),
     update: (...args: unknown[]) => updateSystemConfig(...args),
   },
 }));
@@ -420,6 +426,19 @@ describe('SettingsPage', () => {
       content: 'STOCK_LIST=600519\n',
       configVersion: 'v1',
       updatedAt: '2026-03-21T00:00:00Z',
+    });
+    getSchedulerStatus.mockResolvedValue({
+      enabled: true,
+      running: false,
+      scheduleTimes: ['09:20', '15:10'],
+      nextRunAt: '2026-06-21T09:20:00+08:00',
+      lastRunAt: null,
+      lastSuccessAt: null,
+      lastError: null,
+    });
+    runSchedulerNow.mockResolvedValue({
+      accepted: true,
+      running: true,
     });
     importEnv.mockResolvedValue({
       success: true,
@@ -1011,6 +1030,128 @@ describe('SettingsPage', () => {
     expect(screen.getByRole('button', { name: '开启选股' })).toBeInTheDocument();
     expect(screen.queryByTestId('settings-field-ALPHASIFT_ENABLED')).not.toBeInTheDocument();
     expect(screen.getByTestId('settings-field-ALPHASIFT_INSTALL_SPEC')).toBeInTheDocument();
+  });
+
+  it('maps schedule settings to the scheduler card instead of generic raw fields', async () => {
+    const configState = buildSystemConfigState();
+    useSystemConfigMock.mockReturnValue(buildSystemConfigState({
+      activeCategory: 'system',
+      itemsByCategory: {
+        ...configState.itemsByCategory,
+        system: [
+          ...configState.itemsByCategory.system,
+          {
+            key: 'SCHEDULE_ENABLED',
+            value: 'true',
+            rawValueExists: true,
+            isMasked: false,
+            schema: {
+              key: 'SCHEDULE_ENABLED',
+              category: 'system',
+              dataType: 'boolean',
+              uiControl: 'switch',
+              isSensitive: false,
+              isRequired: false,
+              isEditable: true,
+              options: [],
+              validation: {},
+              displayOrder: 8,
+            },
+          },
+          {
+            key: 'SCHEDULE_TIME',
+            value: '18:00',
+            rawValueExists: true,
+            isMasked: false,
+            schema: {
+              key: 'SCHEDULE_TIME',
+              category: 'system',
+              dataType: 'time',
+              uiControl: 'time',
+              isSensitive: false,
+              isRequired: false,
+              isEditable: true,
+              options: [],
+              validation: {},
+              displayOrder: 10,
+            },
+          },
+          {
+            key: 'SCHEDULE_TIMES',
+            value: '09:20,15:10',
+            rawValueExists: true,
+            isMasked: false,
+            schema: {
+              key: 'SCHEDULE_TIMES',
+              category: 'system',
+              dataType: 'string',
+              uiControl: 'text',
+              isSensitive: false,
+              isRequired: false,
+              isEditable: true,
+              options: [],
+              validation: {},
+              displayOrder: 11,
+            },
+          },
+          {
+            key: 'SCHEDULE_RUN_IMMEDIATELY',
+            value: 'false',
+            rawValueExists: true,
+            isMasked: false,
+            schema: {
+              key: 'SCHEDULE_RUN_IMMEDIATELY',
+              category: 'system',
+              dataType: 'boolean',
+              uiControl: 'switch',
+              isSensitive: false,
+              isRequired: false,
+              isEditable: true,
+              options: [],
+              validation: {},
+              displayOrder: 12,
+            },
+          },
+          {
+            key: 'LOG_LEVEL',
+            value: 'INFO',
+            rawValueExists: true,
+            isMasked: false,
+            schema: {
+              key: 'LOG_LEVEL',
+              category: 'system',
+              dataType: 'string',
+              uiControl: 'select',
+              isSensitive: false,
+              isRequired: false,
+              isEditable: true,
+              options: ['INFO', 'DEBUG'],
+              validation: {},
+              displayOrder: 50,
+            },
+          },
+        ],
+      },
+    }));
+
+    render(<SettingsPage />);
+
+    expect(await screen.findByTestId('scheduler-settings-card')).toBeInTheDocument();
+    expect(screen.queryByTestId('settings-field-SCHEDULE_ENABLED')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('settings-field-SCHEDULE_TIME')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('settings-field-SCHEDULE_TIMES')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('settings-field-SCHEDULE_RUN_IMMEDIATELY')).not.toBeInTheDocument();
+    expect(screen.getByTestId('settings-field-LOG_LEVEL')).toBeInTheDocument();
+
+    fireEvent.change(screen.getByTestId('scheduler-time-input-0'), {
+      target: { value: '10:30' },
+    });
+
+    expect(setDraftValue).toHaveBeenCalledWith('SCHEDULE_TIMES', '10:30,15:10');
+
+    fireEvent.click(screen.getByTestId('scheduler-run-now-button'));
+
+    await waitFor(() => expect(runSchedulerNow).toHaveBeenCalledTimes(1));
   });
 
   it('refreshes AlphaSift state when the enable flow fails', async () => {
