@@ -454,17 +454,32 @@ class MainScheduleModeTestCase(unittest.TestCase):
     def test_serve_with_enabled_schedule_uses_api_runtime_scheduler(self) -> None:
         from src.services.runtime_scheduler import (
             CLI_SCHEDULER_OWNER_ENV,
+            RUNTIME_SCHEDULER_ARGS_ENV,
             RUNTIME_SCHEDULER_RUN_IMMEDIATELY_ENV,
         )
 
-        args = self._make_args(serve=True, schedule=False, host="127.0.0.1", port=8000)
+        args = self._make_args(
+            serve=True,
+            schedule=False,
+            host="127.0.0.1",
+            port=8000,
+            no_notify=True,
+            no_market_review=True,
+            dry_run=True,
+            force_run=True,
+            single_notify=True,
+            no_context_snapshot=True,
+            workers=4,
+        )
         config = self._make_config(webui_enabled=False, schedule_enabled=True)
         marker_seen_by_server = []
         run_immediately_seen_by_server = []
+        runtime_args_seen_by_server = []
 
         def fake_start_api_server(host, port, config):
             marker_seen_by_server.append(os.getenv(CLI_SCHEDULER_OWNER_ENV))
             run_immediately_seen_by_server.append(os.getenv(RUNTIME_SCHEDULER_RUN_IMMEDIATELY_ENV))
+            runtime_args_seen_by_server.append(json.loads(os.getenv(RUNTIME_SCHEDULER_ARGS_ENV, "{}")))
 
         with patch.dict(
             os.environ,
@@ -483,6 +498,15 @@ class MainScheduleModeTestCase(unittest.TestCase):
         self.assertEqual(exit_code, 0)
         self.assertEqual(marker_seen_by_server, [None])
         self.assertEqual(run_immediately_seen_by_server, ["true"])
+        self.assertEqual(runtime_args_seen_by_server, [{
+            "no_notify": True,
+            "no_market_review": True,
+            "dry_run": True,
+            "force_run": True,
+            "single_notify": True,
+            "no_context_snapshot": True,
+            "workers": 4,
+        }])
         start_bots.assert_called_once_with(config)
         run_with_schedule.assert_not_called()
 
