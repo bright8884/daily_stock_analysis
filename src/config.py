@@ -2429,10 +2429,33 @@ class Config:
         """解析大盘复盘市场区域，非法值记录警告后回退为 cn"""
         import logging
         v = (value or 'cn').strip().lower()
-        if v in ('cn', 'us', 'hk', 'jp', 'kr', 'both'):
-            return v
+        supported_regions = ('cn', 'hk', 'us', 'jp', 'kr', 'both')
+        ordered_regions = ('cn', 'hk', 'us', 'jp', 'kr')
+        if not v:
+            return 'cn'
+
+        requested = [item.strip() for item in v.split(',')]
+        if len(requested) == 1:
+            region = requested[0]
+            if region in supported_regions:
+                if region == 'both':
+                    return ','.join(ordered_regions)
+                return region
+            logging.getLogger(__name__).warning(
+                f"MARKET_REVIEW_REGION 配置值 '{value}' 无效，已回退为默认值 'cn'（合法值：cn / hk / us / jp / kr / both；支持逗号分隔有效值）"
+            )
+            return 'cn'
+
+        cleaned = {item for item in requested if item}
+        if 'both' in cleaned:
+            return ','.join(ordered_regions)
+
+        normalized = [region for region in ordered_regions if region in cleaned]
+        if normalized:
+            return ','.join(normalized)
+
         logging.getLogger(__name__).warning(
-            f"MARKET_REVIEW_REGION 配置值 '{value}' 无效，已回退为默认值 'cn'（合法值：cn / hk / us / jp / kr / both）"
+            f"MARKET_REVIEW_REGION 配置值 '{value}' 无效，已回退为默认值 'cn'（合法值：cn / hk / us / jp / kr / both；支持逗号分隔有效值）"
         )
         return 'cn'
 

@@ -787,6 +787,22 @@ class ConfigEnvCompatibilityTestCase(unittest.TestCase):
 
         self.assertEqual(parsed, "zh")
 
+    def test_parse_market_review_region_accepts_jp_kr_values_and_comma_lists(self) -> None:
+        self.assertEqual(Config._parse_market_review_region("jp"), "jp")
+        self.assertEqual(Config._parse_market_review_region("KR"), "kr")
+        self.assertEqual(
+            Config._parse_market_review_region("kr,jp,us"),
+            "us,jp,kr",
+        )
+        self.assertEqual(
+            Config._parse_market_review_region("cn,eu,us"),
+            "cn,us",
+        )
+        self.assertEqual(
+            Config._parse_market_review_region("both"),
+            "cn,hk,us,jp,kr",
+        )
+
     @patch("src.config.setup_env")
     @patch.object(Config, "_parse_litellm_yaml", return_value=[])
     def test_invalid_numeric_env_values_fall_back_to_defaults(

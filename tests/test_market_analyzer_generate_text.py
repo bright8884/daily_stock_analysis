@@ -2252,32 +2252,46 @@ class TestMarketAnalyzerBypassFix:
         assert "### 1. Market Summary" not in result
         assert "US Market Recap" not in result
 
-    def test_generate_template_review_uses_kr_label_for_chinese_fallback(self):
-        from src.core.market_profile import KR_PROFILE
+    @pytest.mark.parametrize(
+        ("region", "profile_name", "index_code", "index_name", "english_title", "zh_label"),
+        [
+            ("jp", "JP_PROFILE", "N225", "Nikkei 225", "Japan Market Recap", "今日日股市场整体呈现"),
+            ("kr", "KR_PROFILE", "KS11", "KOSPI", "Korea Market Recap", "今日韩股市场整体呈现"),
+        ],
+    )
+    def test_generate_template_review_uses_jp_kr_labels_for_no_llm_fallback(
+        self, region, profile_name, index_code, index_name, english_title, zh_label
+    ):
+        import src.core.market_profile as market_profile
         from src.core.market_strategy import get_market_strategy_blueprint
         from src.market_analyzer import MarketOverview, MarketIndex
 
         ma = self._make_market_analyzer_with_mock_generate_text(return_value=None)
-        ma.region = "kr"
-        ma.profile = KR_PROFILE
-        ma.strategy = get_market_strategy_blueprint("kr")
+        ma.region = region
+        ma.profile = getattr(market_profile, profile_name)
+        ma.strategy = get_market_strategy_blueprint(region)
         overview = MarketOverview(
             date="2026-03-05",
             indices=[
                 MarketIndex(
-                    code="KS11",
-                    name="KOSPI",
-                    current=2800.0,
-                    change=-15.0,
-                    change_pct=-0.54,
+                    code=index_code,
+                    name=index_name,
+                    current=30000.0,
+                    change=120.0,
+                    change_pct=0.4,
                 )
             ],
         )
 
-        result = ma.generate_market_review(overview, [])
+        ma.config.report_language = "en"
+        english_result = ma.generate_market_review(overview, [])
+        assert f"## 2026-03-05 {english_title}" in english_result
+        assert "A-share Market Recap" not in english_result
 
-        assert "今日韩股市场整体呈现**小幅下跌**态势" in result
-        assert "今日A股市场" not in result
+        ma.config.report_language = "zh"
+        zh_result = ma.generate_market_review(overview, [])
+        assert zh_label in zh_result
+        assert "今日A股市场整体呈现" not in zh_result
 
     def test_inject_data_into_review_matches_english_headings(self):
         from src.market_analyzer import MarketOverview, MarketIndex
